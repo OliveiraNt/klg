@@ -1,0 +1,10 @@
+ts=2026-07-22T11:00:00Z level=info msg="service ready" component=api version=1.4.2
+ts=2026-07-22T11:00:01Z level=debug msg="cache hit" key=user:42 ttl=300
+ts=2026-07-22T11:00:02Z level=info msg="request handled" method=POST path=/login status=200 duration=12ms
+ts=2026-07-22T11:00:03Z level=warn msg="rate limit near" user=bob remaining=3
+ts=2026-07-22T11:00:04Z level=error msg="failed to publish event" topic=orders err="broker unavailable"
+ts=2026-07-22T11:00:05Z level=info msg="job scheduled" job_id=abc-123 run_at=2026-07-22T12:00:00Z
+ts=2026-07-22T11:00:06Z level=warn msg="disk usage high" path=/var/lib/data usage=87%
+ts=2026-07-22T11:00:07Z level=error msg="unauthorized access" user=eve ip=203.0.113.9 endpoint=/admin
+ts=2026-07-22T11:00:08Z level=info msg="graceful shutdown initiated" signal=SIGTERM
+ts=2026-07-22T11:00:09Z level=info msg="bye" uptime=3h12m

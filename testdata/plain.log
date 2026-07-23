@@ -1,0 +1,12 @@
+Starting application on port 8080
+Loaded 42 routes from config
+INFO  connected to database postgres://db:5432/app
+DEBUG cache warmup complete in 128ms
+WARN  slow request detected: GET /api/reports took 1.2s
+ERROR failed to send email to user@example.com: smtp timeout
+INFO  user alice logged in from 10.0.0.5
+WARNING deprecated endpoint /v1/status called by client=curl/8.1.0
+ERROR panic: runtime error: index out of range [3] with length 2
+FATAL cannot bind to :8080: address already in use
+Shutting down gracefully...
+Goodbye

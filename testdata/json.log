@@ -1,0 +1,10 @@
+{"time":"2026-07-22T10:00:01Z","level":"info","msg":"server starting","port":8080,"env":"prod"}
+{"time":"2026-07-22T10:00:02Z","level":"debug","msg":"config loaded","path":"/etc/app/config.yaml"}
+{"time":"2026-07-22T10:00:03Z","level":"info","msg":"user login","user":"alice","ip":"10.0.0.5"}
+{"time":"2026-07-22T10:00:04Z","level":"warn","msg":"slow query detected","duration_ms":842,"query":"SELECT * FROM orders"}
+{"time":"2026-07-22T10:00:05Z","level":"error","msg":"database connection failed","error":"dial tcp 10.0.0.9:5432: connect: connection refused","retry":3}
+{"time":"2026-07-22T10:00:06Z","level":"info","msg":"request completed","method":"GET","path":"/api/v1/users","status":200,"latency_ms":15}
+{"time":"2026-07-22T10:00:07Z","level":"info","msg":"payload received","payload":{"id":42,"items":[{"sku":"A-1","qty":2},{"sku":"B-9","qty":1}],"total":99.9,"paid":true}}
+{"time":"2026-07-22T10:00:08Z","level":"warn","msg":"deprecated api used","tags":["v1","legacy"],"caller":"handlers.go:88"}
+{"time":"2026-07-22T10:00:09Z","level":"error","msg":"panic recovered","stack":"goroutine 1 [running]:\nmain.doWork(...)\n\t/app/main.go:42","error":"runtime error: invalid memory address"}
+{"time":"2026-07-22T10:00:10Z","level":"fatal","msg":"shutting down","reason":"unrecoverable"}

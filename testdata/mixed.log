@@ -1,0 +1,10 @@
+Booting klg demo pod...
+2026-07-22T13:00:00Z INFO container started image=nginx:1.27
+{"time":"2026-07-22T13:00:01Z","level":"info","msg":"http server up","port":8080}
+ts=2026-07-22T13:00:02Z level=debug msg="handshake ok" peer=10.0.0.2
+2026-07-22T13:00:03.500Z {"level":"warn","msg":"cpu throttled","cores":2,"throttle_pct":18}
+plain log line without any level or timestamp
+{"time":"2026-07-22T13:00:05Z","level":"error","msg":"db query failed","query":"SELECT 1","error":"timeout"}
+ts=2026-07-22T13:00:06Z level=info msg="metrics scraped" scraper=prometheus points=1024
+2026-07-22T13:00:07Z ERROR pod terminated: OOMKilled
+{"time":"2026-07-22T13:00:08Z","level":"info","msg":"restart","attempt":1,"config":{"replicas":3,"strategy":"RollingUpdate"}}
