@@ -1,9 +1,12 @@
 // Package parser detects and extracts common fields (timestamp, level, message)
-// from log lines in several formats: JSON, logfmt and free-form text.
+// from log lines in several formats.
+//
+// Parsers are pluggable: each concrete format lives in its own file and
+// registers itself via Register in an init function. See Parser for the
+// extensibility contract.
 package parser
 
 import (
-	"encoding/json"
 	"strings"
 	"time"
 )
@@ -54,7 +57,7 @@ func ParseLevel(s string) Level {
 		return LevelWarn
 	case "error", "err", "severe":
 		return LevelError
-	case "fatal", "panic", "critical", "crit":
+	case "fatal", "panic", "critical", "crit", "alert", "emerg", "emergency":
 		return LevelFatal
 	default:
 		return LevelUnknown
@@ -70,7 +73,8 @@ type Entry struct {
 	Raw     string
 }
 
-// Parse tries to interpret the line as JSON, then logfmt, and finally free-form text.
+// Parse dispatches the line to the registered parsers in priority order,
+// stripping a leading timestamp when present.
 func Parse(line string) Entry {
 	e := Entry{Raw: line, Fields: map[string]string{}}
 	trimmed := strings.TrimSpace(line)
@@ -80,17 +84,7 @@ func Parse(line string) Entry {
 		trimmed = rest
 	}
 
-	if strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}") {
-		if parseJSON(trimmed, &e) {
-			return e
-		}
-	}
-	if looksLikeLogfmt(trimmed) {
-		if parseLogfmt(trimmed, &e) {
-			return e
-		}
-	}
-	parsePlain(trimmed, &e)
+	dispatch(trimmed, &e)
 	return e
 }
 
@@ -108,149 +102,6 @@ func splitLeadingTimestamp(s string) (time.Time, string, bool) {
 	return time.Time{}, s, false
 }
 
-func parseJSON(s string, e *Entry) bool {
-	var raw map[string]any
-	if err := json.Unmarshal([]byte(s), &raw); err != nil {
-		return false
-	}
-	for k, v := range raw {
-		sv := stringify(v)
-		switch strings.ToLower(k) {
-		case "time", "timestamp", "ts", "@timestamp":
-			if e.Time.IsZero() {
-				if t, ok := parseTime(sv); ok {
-					e.Time = t
-				}
-			}
-		case "level", "lvl", "severity":
-			if e.Level == LevelUnknown {
-				e.Level = ParseLevel(sv)
-			}
-		case "msg", "message":
-			if e.Message == "" {
-				e.Message = sv
-			}
-		default:
-			e.Fields[k] = sv
-		}
-	}
-	if e.Message == "" {
-		e.Message = s
-	}
-	return true
-}
-
-func stringify(v any) string {
-	switch x := v.(type) {
-	case string:
-		return x
-	case nil:
-		return ""
-	default:
-		b, err := json.Marshal(x)
-		if err != nil {
-			return ""
-		}
-		return string(b)
-	}
-}
-
-func looksLikeLogfmt(s string) bool {
-	eq := strings.IndexByte(s, '=')
-	if eq <= 0 {
-		return false
-	}
-	c := s[eq-1]
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-'
-}
-
-func parseLogfmt(s string, e *Entry) bool {
-	fields := splitLogfmt(s)
-	if len(fields) == 0 {
-		return false
-	}
-	for k, v := range fields {
-		switch strings.ToLower(k) {
-		case "time", "timestamp", "ts":
-			if e.Time.IsZero() {
-				if t, ok := parseTime(v); ok {
-					e.Time = t
-				}
-			}
-		case "level", "lvl", "severity":
-			if e.Level == LevelUnknown {
-				e.Level = ParseLevel(v)
-			}
-		case "msg", "message":
-			if e.Message == "" {
-				e.Message = v
-			}
-		default:
-			e.Fields[k] = v
-		}
-	}
-	if e.Message == "" {
-		e.Message = s
-	}
-	return true
-}
-
-func splitLogfmt(s string) map[string]string {
-	out := map[string]string{}
-	i := 0
-	for i < len(s) {
-		for i < len(s) && s[i] == ' ' {
-			i++
-		}
-		start := i
-		for i < len(s) && s[i] != '=' && s[i] != ' ' {
-			i++
-		}
-		if i >= len(s) || s[i] != '=' || i == start {
-			return out
-		}
-		key := s[start:i]
-		i++
-		var val string
-		if i < len(s) && s[i] == '"' {
-			i++
-			vs := i
-			for i < len(s) && s[i] != '"' {
-				if s[i] == '\\' && i+1 < len(s) {
-					i += 2
-					continue
-				}
-				i++
-			}
-			val = s[vs:i]
-			if i < len(s) {
-				i++
-			}
-		} else {
-			vs := i
-			for i < len(s) && s[i] != ' ' {
-				i++
-			}
-			val = s[vs:i]
-		}
-		out[key] = val
-	}
-	return out
-}
-
-func parsePlain(s string, e *Entry) {
-	lower := strings.ToLower(s)
-	for _, kw := range []string{"error", "warn", "info", "debug", "trace", "fatal", "panic"} {
-		if strings.Contains(lower, kw) {
-			if e.Level == LevelUnknown {
-				e.Level = ParseLevel(kw)
-			}
-			break
-		}
-	}
-	e.Message = s
-}
-
 func parseTime(s string) (time.Time, bool) {
 	if s == "" {
 		return time.Time{}, false
@@ -261,6 +112,11 @@ func parseTime(s string) (time.Time, bool) {
 		"2006-01-02T15:04:05.000Z",
 		"2006-01-02 15:04:05",
 		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05,000", // Java/Python
+		"2006-01-02 15:04:05.000",
+		"2006/01/02 15:04:05",        // Nginx error
+		"02/Jan/2006:15:04:05 -0700", // Apache/Nginx access
+		"Jan _2 15:04:05",            // syslog RFC3164
 	}
 	for _, l := range layouts {
 		if t, err := time.Parse(l, s); err == nil {

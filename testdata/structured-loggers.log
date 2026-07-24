@@ -1,0 +1,6 @@
+{"time":"2024-01-15T10:23:45Z","level":"INFO","msg":"slog message","user":"alice"}
+{"level":"info","ts":1705315425.123,"caller":"main.go:42","msg":"zap message","service":"api"}
+{"level":"warn","time":"2024-01-15T10:23:45Z","message":"zerolog message","request_id":"abc"}
+{"level":"error","msg":"logrus json message","time":"2024-01-15T10:23:45Z","fields.file":"foo.go"}
+time="2024-01-15T10:23:45Z" level=info msg="slog text message" user=alice
+time="2024-01-15T10:23:46Z" level=warning msg="logrus text message" request_id=xyz

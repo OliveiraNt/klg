@@ -25,6 +25,7 @@ var (
 	timeFormat  string
 	jsonPretty  bool
 	showVersion bool
+	noMultiline bool
 )
 
 func main() {
@@ -34,6 +35,7 @@ func main() {
 	flag.StringVar(&timeFormat, "time", "15:04:05", "time layout (Go time format)")
 	flag.BoolVar(&jsonPretty, "json-pretty", false, "render JSON values (objects/arrays) with indentation and colors")
 	flag.BoolVar(&showVersion, "version", false, "print version information and exit")
+	flag.BoolVar(&noMultiline, "no-multiline", false, "disable multi-line log aggregation (stack traces, panics)")
 	flag.Usage = usage
 	flag.Parse()
 
@@ -64,16 +66,24 @@ func main() {
 func run(in io.Reader, out io.Writer, f *formatter.Formatter) error {
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	agg := parser.NewLineAggregator(!noMultiline)
+	emit := func(entry parser.Entry) {
+		if !f.Accept(entry) {
+			return
+		}
+		fmt.Fprintln(out, f.Format(entry))
+	}
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
 			continue
 		}
-		entry := parser.Parse(line)
-		if !f.Accept(entry) {
-			continue
+		if entry, ready := agg.Feed(line); ready {
+			emit(entry)
 		}
-		fmt.Fprintln(out, f.Format(entry))
+	}
+	if entry, ready := agg.Flush(); ready {
+		emit(entry)
 	}
 	return scanner.Err()
 }
