@@ -1,5 +1,5 @@
-// Package parser detecta e extrai campos comuns (timestamp, level, message)
-// de linhas de log em vários formatos: JSON, logfmt e texto livre.
+// Package parser detects and extracts common fields (timestamp, level, message)
+// from log lines in several formats: JSON, logfmt and free-form text.
 package parser
 
 import (
@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Level representa a severidade de um registro de log.
+// Level represents the severity of a log record.
 type Level int
 
 const (
@@ -21,7 +21,7 @@ const (
 	LevelFatal
 )
 
-// String devolve o nome canônico do nível (maiúsculas).
+// String returns the canonical uppercase name of the level.
 func (l Level) String() string {
 	switch l {
 	case LevelTrace:
@@ -41,7 +41,7 @@ func (l Level) String() string {
 	}
 }
 
-// ParseLevel converte uma string arbitrária em Level.
+// ParseLevel converts an arbitrary string into a Level.
 func ParseLevel(s string) Level {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "trace":
@@ -61,7 +61,7 @@ func ParseLevel(s string) Level {
 	}
 }
 
-// Entry é uma entrada de log normalizada.
+// Entry is a normalized log entry.
 type Entry struct {
 	Time    time.Time
 	Level   Level
@@ -70,12 +70,11 @@ type Entry struct {
 	Raw     string
 }
 
-// Parse tenta interpretar a linha como JSON, depois logfmt, e por fim texto livre.
+// Parse tries to interpret the line as JSON, then logfmt, and finally free-form text.
 func Parse(line string) Entry {
 	e := Entry{Raw: line, Fields: map[string]string{}}
 	trimmed := strings.TrimSpace(line)
 
-	// kubectl pode prefixar com timestamp RFC3339 quando usado com --timestamps.
 	if ts, rest, ok := splitLeadingTimestamp(trimmed); ok {
 		e.Time = ts
 		trimmed = rest
@@ -157,12 +156,10 @@ func stringify(v any) string {
 }
 
 func looksLikeLogfmt(s string) bool {
-	// Heurística: contém pelo menos um par chave=valor sem espaço antes do '='.
 	eq := strings.IndexByte(s, '=')
 	if eq <= 0 {
 		return false
 	}
-	// caractere anterior ao '=' precisa ser [a-zA-Z0-9_.-]
 	c := s[eq-1]
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-'
 }
@@ -198,7 +195,6 @@ func parseLogfmt(s string, e *Entry) bool {
 	return true
 }
 
-// splitLogfmt faz parsing simples de pares chave=valor com suporte a aspas.
 func splitLogfmt(s string) map[string]string {
 	out := map[string]string{}
 	i := 0
@@ -206,7 +202,6 @@ func splitLogfmt(s string) map[string]string {
 		for i < len(s) && s[i] == ' ' {
 			i++
 		}
-		// chave
 		start := i
 		for i < len(s) && s[i] != '=' && s[i] != ' ' {
 			i++
@@ -215,7 +210,7 @@ func splitLogfmt(s string) map[string]string {
 			return out
 		}
 		key := s[start:i]
-		i++ // consome '='
+		i++
 		var val string
 		if i < len(s) && s[i] == '"' {
 			i++
@@ -229,7 +224,7 @@ func splitLogfmt(s string) map[string]string {
 			}
 			val = s[vs:i]
 			if i < len(s) {
-				i++ // consome '"' de fechamento
+				i++
 			}
 		} else {
 			vs := i
@@ -244,7 +239,6 @@ func splitLogfmt(s string) map[string]string {
 }
 
 func parsePlain(s string, e *Entry) {
-	// Tenta detectar nível dentro de colchetes ou como palavra inicial.
 	lower := strings.ToLower(s)
 	for _, kw := range []string{"error", "warn", "info", "debug", "trace", "fatal", "panic"} {
 		if strings.Contains(lower, kw) {

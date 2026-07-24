@@ -1,5 +1,5 @@
-// Package formatter renderiza entradas de log normalizadas em uma única linha
-// legível (ou em bloco, para JSON) usando lipgloss para estilização.
+// Package formatter renders normalized log entries into a single readable line
+// (or block form for JSON) using lipgloss for styling.
 package formatter
 
 import (
@@ -13,18 +13,18 @@ import (
 	"github.com/OliveiraNt/klg/internal/parser"
 )
 
-// Options controla o comportamento do Formatter.
+// Options controls the Formatter behavior.
 type Options struct {
 	NoColor    bool
 	ShowRaw    bool
 	MinLevel   parser.Level
 	TimeFormat string
-	// JSONPretty ativa a renderização de qualquer campo cujo valor seja um
-	// objeto/array JSON válido em bloco indentado e colorido.
+	// JSONPretty enables rendering of any field whose value is a valid JSON
+	// object/array as an indented, colored block.
 	JSONPretty bool
 }
 
-// Formatter é seguro para uso em uma única goroutine (uso típico da CLI).
+// Formatter is safe for use from a single goroutine (typical CLI usage).
 type Formatter struct {
 	opts Options
 
@@ -39,7 +39,6 @@ type Formatter struct {
 
 	levelStyles map[parser.Level]lipgloss.Style
 
-	// estilos para JSON pretty
 	jsonKey    lipgloss.Style
 	jsonString lipgloss.Style
 	jsonNumber lipgloss.Style
@@ -48,7 +47,7 @@ type Formatter struct {
 	jsonPunc   lipgloss.Style
 }
 
-// New cria um Formatter com as opções fornecidas.
+// New creates a Formatter with the given options.
 func New(opts Options) *Formatter {
 	if opts.TimeFormat == "" {
 		opts.TimeFormat = "15:04:05"
@@ -59,9 +58,8 @@ func New(opts Options) *Formatter {
 }
 
 func (f *Formatter) initStyles() {
-	// Desliga cores globalmente se solicitado.
 	if f.opts.NoColor {
-		lipgloss.SetColorProfile(0) // Ascii
+		lipgloss.SetColorProfile(0)
 	}
 
 	f.styleTime = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
@@ -73,7 +71,6 @@ func (f *Formatter) initStyles() {
 	f.styleWarnMsg = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	f.styleErrMsg = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 
-	// Nível: badge com padding e cor de fundo por severidade.
 	base := lipgloss.NewStyle().Bold(true).Padding(0, 1)
 	f.levelStyles = map[parser.Level]lipgloss.Style{
 		parser.LevelTrace:   base.Foreground(lipgloss.Color("15")).Background(lipgloss.Color("240")),
@@ -93,7 +90,7 @@ func (f *Formatter) initStyles() {
 	f.jsonPunc = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))
 }
 
-// Accept determina se a entrada passa no filtro de nível.
+// Accept reports whether the entry passes the level filter.
 func (f *Formatter) Accept(e parser.Entry) bool {
 	if f.opts.MinLevel == parser.LevelUnknown {
 		return true
@@ -104,17 +101,15 @@ func (f *Formatter) Accept(e parser.Entry) bool {
 	return e.Level >= f.opts.MinLevel
 }
 
-// Format devolve a representação renderizada de uma entrada de log.
+// Format returns the rendered representation of a log entry.
 func (f *Formatter) Format(e parser.Entry) string {
 	var b strings.Builder
 
-	// Timestamp
 	if !e.Time.IsZero() {
 		b.WriteString(f.styleTime.Render(e.Time.Local().Format(f.opts.TimeFormat)))
 		b.WriteByte(' ')
 	}
 
-	// Level badge
 	lvlStyle, ok := f.levelStyles[e.Level]
 	if !ok {
 		lvlStyle = f.levelStyles[parser.LevelUnknown]
@@ -122,7 +117,6 @@ func (f *Formatter) Format(e parser.Entry) string {
 	b.WriteString(lvlStyle.Render(e.Level.String()))
 	b.WriteByte(' ')
 
-	// Message
 	msg := strings.TrimSpace(e.Message)
 	switch e.Level {
 	case parser.LevelError, parser.LevelFatal:
@@ -133,7 +127,6 @@ func (f *Formatter) Format(e parser.Entry) string {
 		b.WriteString(f.styleMsg.Render(msg))
 	}
 
-	// Fields ordenados
 	if len(e.Fields) > 0 {
 		keys := make([]string, 0, len(e.Fields))
 		for k := range e.Fields {
@@ -189,8 +182,6 @@ func (f *Formatter) renderJSONField(key, raw string) string {
 	return "  " + header + "\n" + pretty
 }
 
-// colorizeJSON renderiza recursivamente um valor JSON já decodificado com
-// indentação e cores via lipgloss.
 func (f *Formatter) colorizeJSON(v any, indent string) string {
 	const step = "  "
 	switch x := v.(type) {
@@ -241,7 +232,6 @@ func (f *Formatter) colorizeJSON(v any, indent string) string {
 	case nil:
 		return indent + f.jsonNull.Render("null")
 	case float64:
-		// json.Unmarshal usa float64 para números.
 		return indent + f.jsonNumber.Render(trimFloat(x))
 	default:
 		b, _ := json.Marshal(x)
