@@ -1,14 +1,8 @@
 package parser
 
 import (
-	"regexp"
 	"strings"
 )
-
-// codeFrameRe matches file/line references common in stack frames, e.g.
-// "Foo.java:42", "main.go:10", "api.py:87". Used by the fallback rule of
-// isContinuation to avoid swallowing arbitrary plain lines.
-var codeFrameRe = regexp.MustCompile(`\.[A-Za-z]{1,4}:\d+`)
 
 // LineAggregator merges continuation lines (stack traces, panics, exceptions)
 // into the preceding Entry, so a multi-line log event is emitted as a single
@@ -136,17 +130,15 @@ func isContinuation(line string, prev *Entry) bool {
 			return false
 		}
 	}
-	if codeFrameRe.MatchString(line) {
+	if containsCodeFrame(line) {
 		return true
 	}
 	if strings.Contains(line, "Exception") || strings.Contains(line, "Traceback") {
 		return true
 	}
 	// Python-style trailing exception like "KeyError: 42" or "ValueError: ...".
-	if pyErrorRe.MatchString(line) {
+	if matchPyError(line) {
 		return true
 	}
 	return false
 }
-
-var pyErrorRe = regexp.MustCompile(`^[A-Z][A-Za-z0-9_]*Error:`)

@@ -23,18 +23,18 @@ func (logfmtParser) Parse(line string, e *Entry) bool {
 		return false
 	}
 	for k, v := range fields {
-		switch strings.ToLower(k) {
-		case "time", "timestamp", "ts":
+		switch {
+		case equalFoldASCII(k, "time"), equalFoldASCII(k, "timestamp"), equalFoldASCII(k, "ts"):
 			if e.Time.IsZero() {
 				if t, ok := parseTime(v); ok {
 					e.Time = t
 				}
 			}
-		case "level", "lvl", "severity":
+		case equalFoldASCII(k, "level"), equalFoldASCII(k, "lvl"), equalFoldASCII(k, "severity"):
 			if e.Level == LevelUnknown {
 				e.Level = ParseLevel(v)
 			}
-		case "msg", "message":
+		case equalFoldASCII(k, "msg"), equalFoldASCII(k, "message"):
 			if e.Message == "" {
 				e.Message = v
 			}
@@ -81,8 +81,11 @@ func splitLogfmt(s string) map[string]string {
 			}
 		} else {
 			vs := i
-			for i < len(s) && s[i] != ' ' {
-				i++
+			// SIMD-friendly search for the value terminator (a space).
+			if d := strings.IndexByte(s[i:], ' '); d < 0 {
+				i = len(s)
+			} else {
+				i += d
 			}
 			val = s[vs:i]
 		}

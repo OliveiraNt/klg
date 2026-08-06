@@ -22,18 +22,19 @@ func (jsonParser) Parse(line string, e *Entry) bool {
 	}
 	for k, v := range raw {
 		sv := stringify(v)
-		switch strings.ToLower(k) {
-		case "time", "timestamp", "ts", "@timestamp":
+		switch {
+		case equalFoldASCII(k, "time"), equalFoldASCII(k, "timestamp"),
+			equalFoldASCII(k, "ts"), equalFoldASCII(k, "@timestamp"):
 			if e.Time.IsZero() {
 				if t, ok := parseTime(sv); ok {
 					e.Time = t
 				}
 			}
-		case "level", "lvl", "severity":
+		case equalFoldASCII(k, "level"), equalFoldASCII(k, "lvl"), equalFoldASCII(k, "severity"):
 			if e.Level == LevelUnknown {
 				e.Level = ParseLevel(sv)
 			}
-		case "msg", "message":
+		case equalFoldASCII(k, "msg"), equalFoldASCII(k, "message"):
 			if e.Message == "" {
 				e.Message = sv
 			}
