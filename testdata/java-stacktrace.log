@@ -1,0 +1,8 @@
+2024-01-15 10:23:47,500 ERROR [scheduler-2] com.example.job.Worker - Failed to process batch
+java.lang.RuntimeException: boom
+	at com.example.job.Worker.run(Worker.java:42)
+	at java.base/java.lang.Thread.run(Thread.java:829)
+Caused by: java.io.IOException: disk full
+	at com.example.io.Store.write(Store.java:87)
+	... 3 more
+2024-01-15 10:23:48,000 INFO  [main] com.example.App - Recovered

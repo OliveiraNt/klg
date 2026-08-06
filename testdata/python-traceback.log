@@ -1,0 +1,8 @@
+2024-01-15 10:23:47,500 - myapp.api - ERROR - Failed to fetch user 42
+Traceback (most recent call last):
+  File "/app/api.py", line 42, in fetch
+    return db.get(user_id)
+  File "/app/db.py", line 87, in get
+    raise KeyError(user_id)
+KeyError: 42
+2024-01-15 10:23:48,000 - myapp.api - INFO - Retrying

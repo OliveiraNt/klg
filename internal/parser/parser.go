@@ -1,9 +1,12 @@
 // Package parser detects and extracts common fields (timestamp, level, message)
-// from log lines in several formats: JSON, logfmt and free-form text.
+// from log lines in several formats.
+//
+// Parsers are pluggable: each concrete format lives in its own file and
+// registers itself via Register in an init function. See Parser for the
+// extensibility contract.
 package parser
 
 import (
-	"encoding/json"
 	"strings"
 	"time"
 )
@@ -41,24 +44,70 @@ func (l Level) String() string {
 	}
 }
 
-// ParseLevel converts an arbitrary string into a Level.
+// ParseLevel converts an arbitrary string into a Level. It performs an
+// allocation-free, ASCII case-insensitive comparison (no strings.ToLower /
+// TrimSpace over a freshly allocated string).
 func ParseLevel(s string) Level {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "trace":
-		return LevelTrace
-	case "debug", "dbg":
-		return LevelDebug
-	case "info", "informational", "notice":
-		return LevelInfo
-	case "warn", "warning":
-		return LevelWarn
-	case "error", "err", "severe":
-		return LevelError
-	case "fatal", "panic", "critical", "crit":
-		return LevelFatal
-	default:
+	s = strings.TrimSpace(s)
+	if s == "" {
 		return LevelUnknown
 	}
+	// Dispatch on the (folded) first byte to avoid comparing against every
+	// keyword; then confirm with an allocation-free case-insensitive compare.
+	c := s[0]
+	if c >= 'A' && c <= 'Z' {
+		c += 'a' - 'A'
+	}
+	switch c {
+	case 't':
+		if equalFoldASCII(s, "trace") {
+			return LevelTrace
+		}
+	case 'd':
+		if equalFoldASCII(s, "debug") || equalFoldASCII(s, "dbg") {
+			return LevelDebug
+		}
+	case 'i':
+		if equalFoldASCII(s, "info") || equalFoldASCII(s, "informational") {
+			return LevelInfo
+		}
+	case 'n':
+		if equalFoldASCII(s, "notice") {
+			return LevelInfo
+		}
+	case 'w':
+		if equalFoldASCII(s, "warn") || equalFoldASCII(s, "warning") {
+			return LevelWarn
+		}
+	case 'e':
+		if equalFoldASCII(s, "error") || equalFoldASCII(s, "err") {
+			return LevelError
+		}
+		if equalFoldASCII(s, "emerg") || equalFoldASCII(s, "emergency") {
+			return LevelFatal
+		}
+	case 's':
+		if equalFoldASCII(s, "severe") {
+			return LevelError
+		}
+	case 'f':
+		if equalFoldASCII(s, "fatal") {
+			return LevelFatal
+		}
+	case 'p':
+		if equalFoldASCII(s, "panic") {
+			return LevelFatal
+		}
+	case 'c':
+		if equalFoldASCII(s, "critical") || equalFoldASCII(s, "crit") {
+			return LevelFatal
+		}
+	case 'a':
+		if equalFoldASCII(s, "alert") {
+			return LevelFatal
+		}
+	}
+	return LevelUnknown
 }
 
 // Entry is a normalized log entry.
@@ -70,7 +119,8 @@ type Entry struct {
 	Raw     string
 }
 
-// Parse tries to interpret the line as JSON, then logfmt, and finally free-form text.
+// Parse dispatches the line to the registered parsers in priority order,
+// stripping a leading timestamp when present.
 func Parse(line string) Entry {
 	e := Entry{Raw: line, Fields: map[string]string{}}
 	trimmed := strings.TrimSpace(line)
@@ -80,17 +130,7 @@ func Parse(line string) Entry {
 		trimmed = rest
 	}
 
-	if strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}") {
-		if parseJSON(trimmed, &e) {
-			return e
-		}
-	}
-	if looksLikeLogfmt(trimmed) {
-		if parseLogfmt(trimmed, &e) {
-			return e
-		}
-	}
-	parsePlain(trimmed, &e)
+	dispatch(trimmed, &e)
 	return e
 }
 
@@ -108,161 +148,57 @@ func splitLeadingTimestamp(s string) (time.Time, string, bool) {
 	return time.Time{}, s, false
 }
 
-func parseJSON(s string, e *Entry) bool {
-	var raw map[string]any
-	if err := json.Unmarshal([]byte(s), &raw); err != nil {
-		return false
+// Layout groups, kept in the same relative order as the original flat list so
+// that classification never changes which layout wins for a given input.
+var (
+	// "2006-01-02T15:04:05..." (ISO-8601 with a 'T' date/time separator).
+	layoutsT = []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05.000Z",
+		"2006-01-02T15:04:05",
 	}
-	for k, v := range raw {
-		sv := stringify(v)
-		switch strings.ToLower(k) {
-		case "time", "timestamp", "ts", "@timestamp":
-			if e.Time.IsZero() {
-				if t, ok := parseTime(sv); ok {
-					e.Time = t
-				}
-			}
-		case "level", "lvl", "severity":
-			if e.Level == LevelUnknown {
-				e.Level = ParseLevel(sv)
-			}
-		case "msg", "message":
-			if e.Message == "" {
-				e.Message = sv
-			}
-		default:
-			e.Fields[k] = sv
-		}
+	// "2006-01-02 15:04:05" with an optional fractional part (Java/Python).
+	layoutsSpace = []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04:05,000",
+		"2006-01-02 15:04:05.000",
 	}
-	if e.Message == "" {
-		e.Message = s
+	// Slash-separated dates: Nginx error ("2006/01/02 ...") and
+	// Apache/Nginx access ("02/Jan/2006:...").
+	layoutsSlash = []string{
+		"2006/01/02 15:04:05",
+		"02/Jan/2006:15:04:05 -0700",
 	}
-	return true
-}
+	// syslog RFC3164 ("Jan _2 15:04:05").
+	layoutSyslog = "Jan _2 15:04:05"
+)
 
-func stringify(v any) string {
-	switch x := v.(type) {
-	case string:
-		return x
-	case nil:
-		return ""
-	default:
-		b, err := json.Marshal(x)
-		if err != nil {
-			return ""
-		}
-		return string(b)
-	}
-}
-
-func looksLikeLogfmt(s string) bool {
-	eq := strings.IndexByte(s, '=')
-	if eq <= 0 {
-		return false
-	}
-	c := s[eq-1]
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-'
-}
-
-func parseLogfmt(s string, e *Entry) bool {
-	fields := splitLogfmt(s)
-	if len(fields) == 0 {
-		return false
-	}
-	for k, v := range fields {
-		switch strings.ToLower(k) {
-		case "time", "timestamp", "ts":
-			if e.Time.IsZero() {
-				if t, ok := parseTime(v); ok {
-					e.Time = t
-				}
-			}
-		case "level", "lvl", "severity":
-			if e.Level == LevelUnknown {
-				e.Level = ParseLevel(v)
-			}
-		case "msg", "message":
-			if e.Message == "" {
-				e.Message = v
-			}
-		default:
-			e.Fields[k] = v
-		}
-	}
-	if e.Message == "" {
-		e.Message = s
-	}
-	return true
-}
-
-func splitLogfmt(s string) map[string]string {
-	out := map[string]string{}
-	i := 0
-	for i < len(s) {
-		for i < len(s) && s[i] == ' ' {
-			i++
-		}
-		start := i
-		for i < len(s) && s[i] != '=' && s[i] != ' ' {
-			i++
-		}
-		if i >= len(s) || s[i] != '=' || i == start {
-			return out
-		}
-		key := s[start:i]
-		i++
-		var val string
-		if i < len(s) && s[i] == '"' {
-			i++
-			vs := i
-			for i < len(s) && s[i] != '"' {
-				if s[i] == '\\' && i+1 < len(s) {
-					i += 2
-					continue
-				}
-				i++
-			}
-			val = s[vs:i]
-			if i < len(s) {
-				i++
-			}
-		} else {
-			vs := i
-			for i < len(s) && s[i] != ' ' {
-				i++
-			}
-			val = s[vs:i]
-		}
-		out[key] = val
-	}
-	return out
-}
-
-func parsePlain(s string, e *Entry) {
-	lower := strings.ToLower(s)
-	for _, kw := range []string{"error", "warn", "info", "debug", "trace", "fatal", "panic"} {
-		if strings.Contains(lower, kw) {
-			if e.Level == LevelUnknown {
-				e.Level = ParseLevel(kw)
-			}
-			break
-		}
-	}
-	e.Message = s
-}
-
+// parseTime tries only the layouts compatible with the shape of s, classified
+// by a few cheap structural markers. The relative order of candidate layouts
+// matches the original sequential list, so results are identical while far
+// fewer time.Parse attempts (and their allocations) are made.
 func parseTime(s string) (time.Time, bool) {
 	if s == "" {
 		return time.Time{}, false
 	}
-	layouts := []string{
-		time.RFC3339Nano,
-		time.RFC3339,
-		"2006-01-02T15:04:05.000Z",
-		"2006-01-02 15:04:05",
-		"2006-01-02T15:04:05",
+	var candidates []string
+	switch {
+	case len(s) >= 11 && s[10] == 'T':
+		candidates = layoutsT
+	case len(s) >= 11 && s[4] == '-' && s[10] == ' ':
+		candidates = layoutsSpace
+	case strings.IndexByte(s, '/') >= 0:
+		candidates = layoutsSlash
+	case isUpperLetter(s[0]):
+		if t, err := time.Parse(layoutSyslog, s); err == nil {
+			return t, true
+		}
+		return time.Time{}, false
+	default:
+		return time.Time{}, false
 	}
-	for _, l := range layouts {
+	for _, l := range candidates {
 		if t, err := time.Parse(l, s); err == nil {
 			return t, true
 		}
